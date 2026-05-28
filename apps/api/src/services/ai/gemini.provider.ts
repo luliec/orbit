@@ -12,15 +12,18 @@ let GoogleGenerativeAI: unknown = null
 async function loadGemini() {
   if (!GoogleGenerativeAI) {
     try {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore — optional dependency, installed only when AI_PROVIDER=gemini
       const mod = await import('@google/generative-ai')
       GoogleGenerativeAI = mod.GoogleGenerativeAI
     } catch {
       throw new Error(
-        'Paquete @google/generative-ai no instalado. Ejecutá: pnpm add @google/generative-ai'
+        'Paquete @google/generative-ai no instalado. Ejecutá: pnpm add @google/generative-ai --filter @orbit/api'
       )
     }
   }
-  return GoogleGenerativeAI as typeof import('@google/generative-ai').GoogleGenerativeAI
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return GoogleGenerativeAI as any
 }
 
 export class GeminiProvider implements AIProvider {
@@ -32,8 +35,7 @@ export class GeminiProvider implements AIProvider {
 
   async generateCopy(params: GenerateCopyParams): Promise<CopyVariant[]> {
     const GeminiClass = await loadGemini()
-    // @ts-expect-error - dynamic import
-    const genAI = new GeminiClass(process.env.GEMINI_API_KEY)
+    const genAI = new GeminiClass(process.env.GEMINI_API_KEY ?? '')
     const model = genAI.getGenerativeModel({
       model: params.model || this.model,
       systemInstruction: params.systemPrompt,
@@ -61,8 +63,7 @@ export class GeminiProvider implements AIProvider {
 
   async reviewArt(params: ReviewArtParams): Promise<ArtReviewResult> {
     const GeminiClass = await loadGemini()
-    // @ts-expect-error - dynamic import
-    const genAI = new GeminiClass(process.env.GEMINI_API_KEY)
+    const genAI = new GeminiClass(process.env.GEMINI_API_KEY ?? '')
     const model = genAI.getGenerativeModel({ model: params.model || this.model })
 
     const result = await model.generateContent([

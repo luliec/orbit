@@ -57,7 +57,7 @@ app.get('/', authMiddleware, async (c) => {
   }
 
   if (status) conditions.push(eq(requests.status, status))
-  if (channel) conditions.push(eq(requests.channel, channel))
+  if (channel) conditions.push(eq(requests.channel, channel as 'email' | 'whatsapp' | 'sms' | 'paid_digital'))
 
   const result = await db
     .select()

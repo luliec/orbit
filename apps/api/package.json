@@ -15,7 +15,9 @@
     "@supabase/supabase-js": "^2.43.0",
     "@upstash/ratelimit": "^2.0.0",
     "@upstash/redis": "^1.31.0",
+    "drizzle-orm": "^0.31.0",
     "hono": "^4.3.0",
+    "postgres": "^3.4.4",
     "resend": "^3.2.0",
     "zod": "^3.23.0",
     "@hono/zod-validator": "^0.2.0"

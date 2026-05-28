@@ -1,11 +1,11 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { getDb, copyVersions, requests, requestVariants, users, auditLog } from '@orbit/db'
+import { getDb, copyVersions, requests, users, auditLog } from '@orbit/db'
 import { eq, and, isNull, desc, max } from 'drizzle-orm'
 import { authMiddleware } from '../middleware/auth'
 import { requireRole } from '../middleware/role'
-import { NotFoundError, ForbiddenError, AppError } from '../lib/errors'
+import { NotFoundError, AppError } from '../lib/errors'
 import { getAIProvider, isAIAvailable } from '../services/ai'
 import type { CopySection } from '@orbit/db'
 
@@ -18,11 +18,10 @@ const copySectionSchema = z.object({
   charLimit: z.number().nullable().optional(),
 })
 
-// GET /requests/:id/copies
+// GET /requests/:requestId/copies
 app.get('/', authMiddleware, async (c) => {
-  const requestId = c.req.param('requestId')
+  const requestId = c.req.param('requestId') as string
   const variantId = c.req.query('variantId')
-  const user = c.get('user')
   const db = getDb()
 
   const [request] = await db
@@ -33,8 +32,8 @@ app.get('/', authMiddleware, async (c) => {
 
   if (!request) throw new NotFoundError('Solicitud')
 
-  const conditions = [eq(copyVersions.requestId, requestId)]
-  if (variantId) conditions.push(eq(copyVersions.variantId, variantId))
+  const baseConditions = [eq(copyVersions.requestId, requestId)]
+  if (variantId) baseConditions.push(eq(copyVersions.variantId, variantId))
 
   const versions = await db
     .select({
@@ -52,23 +51,22 @@ app.get('/', authMiddleware, async (c) => {
     })
     .from(copyVersions)
     .leftJoin(users, eq(copyVersions.createdBy, users.id))
-    .where(and(...conditions))
+    .where(and(...baseConditions))
     .orderBy(desc(copyVersions.versionNumber))
 
   return c.json({ data: versions })
 })
 
-// PUT /requests/:id/copies/:versionId
+// PUT /requests/:requestId/copies/:versionId
 app.put(
   '/:versionId',
   authMiddleware,
   requireRole('copy', 'admin'),
   zValidator('json', z.object({ content: z.array(copySectionSchema) })),
   async (c) => {
-    const requestId = c.req.param('requestId')
-    const versionId = c.req.param('versionId')
+    const requestId = c.req.param('requestId') as string
+    const versionId = c.req.param('versionId') as string
     const { content } = c.req.valid('json')
-    const user = c.get('user')
     const db = getDb()
 
     const [version] = await db
@@ -97,10 +95,10 @@ app.put(
   }
 )
 
-// POST /requests/:id/copies/:versionId/submit
+// POST /requests/:requestId/copies/:versionId/submit
 app.post('/:versionId/submit', authMiddleware, requireRole('copy', 'admin'), async (c) => {
-  const requestId = c.req.param('requestId')
-  const versionId = c.req.param('versionId')
+  const requestId = c.req.param('requestId') as string
+  const versionId = c.req.param('versionId') as string
   const db = getDb()
 
   const [version] = await db
@@ -123,10 +121,10 @@ app.post('/:versionId/submit', authMiddleware, requireRole('copy', 'admin'), asy
   return c.json({ data: updated })
 })
 
-// POST /requests/:id/copies/:versionId/approve
+// POST /requests/:requestId/copies/:versionId/approve
 app.post('/:versionId/approve', authMiddleware, requireRole('pm', 'admin'), async (c) => {
-  const requestId = c.req.param('requestId')
-  const versionId = c.req.param('versionId')
+  const requestId = c.req.param('requestId') as string
+  const versionId = c.req.param('versionId') as string
   const user = c.get('user')
   const db = getDb()
 
@@ -150,11 +148,11 @@ app.post('/:versionId/approve', authMiddleware, requireRole('pm', 'admin'), asyn
   return c.json({ data: updated })
 })
 
-// POST /requests/:id/copies/generate — IA
+// POST /requests/:requestId/copies/generate — IA
 app.post('/generate', authMiddleware, requireRole('copy', 'admin'), async (c) => {
-  const requestId = c.req.param('requestId')
+  const requestId = c.req.param('requestId') as string
   const body = await c.req.json().catch(() => ({}))
-  const variantId = body?.variantId ?? null
+  const variantId: string | null = body?.variantId ?? null
   const user = c.get('user')
   const db = getDb()
 
@@ -165,19 +163,21 @@ app.post('/generate', authMiddleware, requireRole('copy', 'admin'), async (c) =>
     .limit(1)
 
   if (!request) throw new NotFoundError('Solicitud')
+  if (!request.channel) {
+    throw new AppError('VALIDATION_ERROR', 'La solicitud no tiene canal definido', 400)
+  }
 
-  // Obtener número de versión
+  // Obtener número de versión siguiente
+  const condition = variantId
+    ? and(eq(copyVersions.requestId, requestId), eq(copyVersions.variantId, variantId))
+    : and(eq(copyVersions.requestId, requestId), isNull(copyVersions.variantId))
+
   const [maxResult] = await db
-    .select({ max: max(copyVersions.versionNumber) })
+    .select({ maxVer: max(copyVersions.versionNumber) })
     .from(copyVersions)
-    .where(
-      and(
-        eq(copyVersions.requestId, requestId),
-        variantId ? eq(copyVersions.variantId, variantId) : isNull(copyVersions.variantId)
-      )
-    )
+    .where(condition)
 
-  const nextVersion = (maxResult?.max ?? 0) + 1
+  const nextVersion = (maxResult?.maxVer ?? 0) + 1
 
   const ai = getAIProvider()
   const modelName = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
@@ -186,11 +186,11 @@ app.post('/generate', authMiddleware, requireRole('copy', 'admin'), async (c) =>
 
   const userPrompt = `Generá un copy para:
 Canal: ${request.channel}
-Título de la solicitud: ${request.title}
+Título: ${request.title}
 Objetivo: ${request.objective ?? 'No especificado'}
 Brief: ${request.brief ?? 'No especificado'}
 
-Devolvé un JSON con la estructura:
+Devolvé solo JSON con esta estructura (sin markdown):
 {
   "sections": [
     { "key": "subject", "label": "Asunto", "value": "...", "charLimit": 60 },
@@ -211,16 +211,18 @@ Devolvé un JSON con la estructura:
       charLimit: s.charLimit ?? null,
     })) ?? []
 
+  const channel = request.channel
+
   const [created] = await db
     .insert(copyVersions)
     .values({
       requestId,
       variantId: variantId ?? null,
       versionNumber: nextVersion,
-      channel: request.channel,
+      channel,
       content,
-      generationType: 'ai_generated',
-      status: 'draft',
+      generationType: 'ai_generated' as const,
+      status: 'draft' as const,
       createdBy: user.id,
       aiModel: isAIAvailable() ? 'gemini-2.0-flash' : 'mock',
     })
