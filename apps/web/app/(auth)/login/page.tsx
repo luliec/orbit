@@ -1,52 +1,14 @@
-'use client'
-
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { useToast } from '@/hooks/use-toast'
 
-export default function LoginPage() {
-  const router = useRouter()
-  const { toast } = useToast()
-  const [loading, setLoading] = useState(false)
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+interface Props {
+  searchParams: { error?: string }
+}
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setLoading(true)
-
-    try {
-      const supabase = createClient()
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
-
-      if (error) {
-        toast({
-          variant: 'destructive',
-          title: 'Error al iniciar sesión',
-          description: error.message === 'Invalid login credentials'
-            ? 'Email o contraseña incorrectos'
-            : error.message,
-        })
-        return
-      }
-
-      router.push('/')
-      router.refresh()
-    } catch {
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Ocurrió un error inesperado. Intentá de nuevo.',
-      })
-    } finally {
-      setLoading(false)
-    }
-  }
+export default function LoginPage({ searchParams }: Props) {
+  const error = searchParams?.error
 
   return (
     <Card>
@@ -63,17 +25,15 @@ export default function LoginPage() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form method="POST" action="/api/auth/login" className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input
               id="email"
+              name="email"
               type="email"
               placeholder="nombre@empresa.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
               required
-              disabled={loading}
               autoComplete="email"
             />
           </div>
@@ -81,16 +41,21 @@ export default function LoginPage() {
             <Label htmlFor="password">Contraseña</Label>
             <Input
               id="password"
+              name="password"
               type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
               required
-              disabled={loading}
               autoComplete="current-password"
             />
           </div>
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? 'Ingresando...' : 'Ingresar'}
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 rounded-md px-3 py-2 text-sm">
+              {decodeURIComponent(error)}
+            </div>
+          )}
+
+          <Button type="submit" className="w-full">
+            Ingresar
           </Button>
         </form>
       </CardContent>
